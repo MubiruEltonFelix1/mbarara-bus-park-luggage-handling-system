@@ -19,8 +19,23 @@ button.sec{background:transparent;color:var(--tx);border:1px solid var(--bd);mar
 .prev{display:flex;justify-content:center;background:#e5e7eb;padding:14px;border-radius:8px;overflow:auto}
 .note{font-size:12px;color:var(--mut);margin-top:10px}
 
-/* tickets are VECTOR svg, not png. the browser has nothing to resample, so the
-   thermal printer rasterises whole square modules instead of grey-blurred ones. */
+/* ---------- scan / verification screen (shown when a ticket QR is opened) ---------- */
+#vscreen{position:fixed;inset:0;background:var(--bg);z-index:50;overflow:auto;padding:18px}
+#vscreen[hidden]{display:none}
+.vcard{max-width:440px;margin:0 auto;background:var(--card);border:1px solid var(--bd);border-radius:14px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.10)}
+.vtop{padding:22px 18px;text-align:center;color:#fff;background:#0f766e}
+.vtop.bad{background:#b91c1c}
+.vseal{font-size:13px;letter-spacing:.16em;text-transform:uppercase;opacity:.9}
+.vtitle{font-size:30px;font-weight:800;margin:6px 0 2px;letter-spacing:-.01em}
+.vsub{font-size:13px;opacity:.92}
+.vid{margin:16px 18px 0;padding:12px;border:1px dashed var(--bd);border-radius:10px;text-align:center;font:700 19px "Courier New",Courier,monospace;word-break:break-all}
+.vrows{padding:6px 18px 4px}
+.vrow{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid var(--bd);font-size:14px}
+.vrow:last-child{border-bottom:0}
+.vrow b{color:var(--mut);font-weight:600;white-space:nowrap}
+.vrow span{text-align:right;word-break:break-word}
+.vfoot{padding:12px 18px 18px;font-size:12px;color:var(--mut);text-align:center}
+.vfoot a{color:var(--ac);cursor:pointer}
 .tk{background:#fff;overflow:hidden;margin:0 auto 10px;page-break-after:always;break-after:page;page-break-inside:avoid}
 .tk:last-child{page-break-after:auto;break-after:auto}
 .tk svg{display:block;width:100%;height:100%}
@@ -77,6 +92,8 @@ body.printing .prev{background:none;padding:0}
     </div>
     <button id="gen">Generate ticket</button>
     <button id="print" class="sec">🖨 Print</button>
+    <button id="scan" class="sec">📱 Preview what the QR opens</button>
+    <div class="note" id="qrwarn"></div>
     <div class="note">Each ticket gets a unique ID. Copy 1 goes to the customer, copy 2 is stuck on the item. In the print dialog set: <b>Paper size = Custom (48mm wide)</b>, Margins = None, Scale = 100%, Headers and footers OFF. Anything else re-scales the ticket and blurs the QR.</div>
   </div>
   <div class="card">
@@ -84,7 +101,7 @@ body.printing .prev{background:none;padding:0}
     <div class="prev pv"><div id="tickets"><div style="font:14px system-ui;color:#666;padding:20px;width:48mm">Fill in the form and press “Generate ticket”.</div></div></div>
   </div>
 </div>
-
+<div id="vscreen" hidden></div>
 <script>//---------------------------------------------------------------------
 //
 // QR Code Generator for JavaScript
@@ -2400,6 +2417,41 @@ function nextId(){
   const rand=[...r].map(x=>A[x%A.length]).join('');
   return `P${day}-${String(n).padStart(3,'0')}-${rand}`;   // unique: date + daily counter + random
 }
+//--- self-contained signed ticket payload: no database, no lookup -------------
+// The QR carries the whole parcel record, so scanning works offline forever.
+// A truncated HMAC-SHA256 tag means a reprinted/edited ticket is detectable.
+const APP_KEY='mbarara-park-luggage-v1';
+const SIG_BYTES=16;                    // 128-bit tag
+const FIELDS=['id','type','qty','desc','sname','sphone','rname','rphone','dest','plate','wt','fee','stamp','att'];
+const clean=s=>String(s==null?'':s).replace(/[~\s_]+/g,' ').trim();
+const enc=s=>clean(s).replace(/ /g,'_');        // space -> '_', and '_' is stripped from input
+const cap=(s,n)=>enc(s).slice(0,n).replace(/_+$/,'');   // cut without leaving a dangling separator
+const dec=s=>String(s==null?'':s).replace(/_/g,' ').trim();
+const num=s=>String(s==null?'':s).replace(/\D/g,'');
+const tel=s=>{const d=num(s);return d.length===10?d.slice(0,4)+' '+d.slice(4,7)+' '+d.slice(7):d};
+const b64u=b=>btoa(String.fromCharCode.apply(null,new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const unb64u=s=>Uint8Array.from(atob(String(s).replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+const hasCrypto=()=>!!(window.crypto&&window.crypto.subtle);
+async function hmac(str){
+  const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(APP_KEY),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  return new Uint8Array(await crypto.subtle.sign('HMAC',k,new TextEncoder().encode(str)));
+}
+async function tag(str){return b64u((await hmac(str)).slice(0,SIG_BYTES));}
+async function check(body,sig){
+  if(!sig||!hasCrypto())return false;
+  let got;try{got=unb64u(sig)}catch(e){return false}
+  if(got.length!==SIG_BYTES)return false;
+  const exp=(await hmac(body)).slice(0,SIG_BYTES);
+  let diff=0;for(let i=0;i<got.length;i++)diff|=got[i]^exp[i];
+  return diff===0;                        // constant-time-ish compare
+}
+const stamp=d=>String(d.getFullYear()).slice(2)+p2(d.getMonth()+1)+p2(d.getDate())+p2(d.getHours())+p2(d.getMinutes());
+const p2=n=>String(n).padStart(2,'0');
+function readStamp(s){
+  const m=/^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(s||'');
+  if(!m)return '';
+  return m[3]+'/'+m[2]+'/'+m[1]+' '+m[4]+':'+m[5];   // dd/mm/yy HH:MM
+}
 let current=null;
 const FONT='"Courier New",Courier,monospace';
 const QZ=4;                       // quiet zone: 4 modules, the spec minimum. 2 breaks many scanners.
@@ -2443,17 +2495,17 @@ function layout(W,v,id,date,label,qrText){
     y+=3;R(pad,y,IW,1);y+=3;});
   y+=8;center('Keep this ticket. Show it to collect your item.',17,'bold',22);
   y+=8;center('- - - - - - - - - - - -',18,'bold',22);
-  return {h:Math.ceil(y+pad+16), svg:svg};
+  return {h:Math.ceil(y+pad+16), svg:svg, mod:mod, qn:n};
 }
 function build(){
   const v=current.v,id=current.id,date=current.date;
   const mm=Math.max(30,Math.min(80,+v.pw||48)),W=Math.round(mm*8);   // 8 user units = 1mm = 203dpi dot grid
-  const qrText=[id,v.type,v.qty+'pc',v.dest,v.plate,v.rphone].join('|');
+  const qrText=current.qrUrl;                                        // whole record + signature, no database
   const n=Math.max(1,Math.min(5,+v.copies||1));
-  let H=0,html='';
+  let H=0,html='',mod=0,qn=0;
   for(let i=1;i<=n;i++){
     const r=layout(W,v,id,date,'('+i+'/'+n+')',qrText);
-    H=r.h;
+    H=r.h; mod=r.mod; qn=r.qn;
     html+='<div class="tk" style="width:'+mm+'mm;height:'+(H/8).toFixed(2)+'mm">'
         +'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'">'
         +'<rect width="'+W+'" height="'+H+'" fill="#fff"/>'+r.svg+'</svg></div>';
@@ -2465,15 +2517,35 @@ function build(){
   document.documentElement.style.setProperty('--ph',hmm+'mm');
   let st=$('pgstyle');if(!st){st=document.createElement('style');st.id='pgstyle';document.head.appendChild(st)}
   st.textContent='@page{size:'+mm+'mm '+hmm+'mm;margin:0}';
+  // a module smaller than 6 dots (0.75mm) still scans on phones, but handheld
+  // counter scanners want it bigger -- say so instead of silently shipping a bad ticket
+  const w=$('qrwarn'), cell=mod/8;
+  if(mod>=6){
+    w.style.color='var(--mut)';
+    w.textContent='QR module '+mod+' dots ('+cell.toFixed(2)+'mm) on '+mm+'mm roll — good for handheld scanners.';
+  }else{
+    const need=Math.ceil((mod+1)*(qn+8)/8);      // width that buys the next module size up
+    w.style.color='#b45309';
+    w.textContent='QR module is only '+mod+' dots ('+cell.toFixed(2)+'mm) at '+mm+'mm. Phones scan it fine, but for a 0.75mm module print at '
+      +(need<=80?need+'mm' : (qn+8)*7/8>80?'58mm roll (max 80mm can\'t reach 0.75mm — shorten the description)':'58mm roll')+'.';
+  }
 }
-$('gen').onclick=()=>{
+$('gen').onclick=async()=>{
   const v={};
   ['park','type','qty','desc','sname','sphone','rname','rphone','dest','plate','wt','fee','copies','att','pw'].forEach(k=>v[k]=$(k).value.trim());
   store.set('park',v.park); store.set('att',v.att);
   const d=new Date();
-  current={id:nextId(),v,date:d.toLocaleDateString('en-GB')+' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})};
+  const id=nextId(), date=d.toLocaleDateString('en-GB')+' '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  // fixed field order, URL-safe, description capped so the QR stays scannable
+  const body=['MB1',id,clean(v.type),num(v.qty)||'1',cap(v.desc,24),enc(v.sname),num(v.sphone),
+              enc(v.rname),num(v.rphone),enc(v.dest),clean(v.plate).replace(/ /g,''),
+              v.wt?String(Number(v.wt)):'',num(v.fee),stamp(d),enc(v.att)].join('~');
+  const sig=hasCrypto()?await tag(body):'';
+  current={id:id,v:v,date:date,body:body,sig:sig,qrUrl:location.origin+location.pathname+'#'+body+(sig?'~'+sig:'')};
   build();
 };
+// simulate a phone scanning the printed ticket -- same code path as a real scan
+$('scan').onclick=()=>{ if(!current)$('gen').click(); showTicket(current.qrUrl); };
 $('print').onclick=()=>{
   if(!current) $('gen').click();
   const p=window.lastPrint; if(!p) return;
@@ -2492,5 +2564,42 @@ $('print').onclick=()=>{
     setTimeout(()=>{window.print();setTimeout(done,1500)},300);
   }
 };
+
+//--- what a phone sees after scanning the printed QR ------------------------
+// Layout is fixed, so the signature sits at a known index: 'MB1' + 14 fields + tag.
+const BODY_PARTS=1+FIELDS.length;
+const LBL={id:'Ticket ID',type:'Item type',qty:'Quantity',desc:'Description',sname:'From',sphone:'Sender tel',
+  rname:'To',rphone:'Receiver tel',dest:'Destination',plate:'Vehicle plate',wt:'Weight',fee:'Fee',att:'Attendant'};
+async function showTicket(url){
+  const el=$('vscreen'), hash=String(url||'').split('#')[1]||'', f=hash.split('~');
+  const back='<a id="vback">&larr; Back to generator</a>';
+  function bind(){const b=el.querySelector('#vback');if(b)b.onclick=()=>{el.hidden=true;history.replaceState(null,'',location.pathname)}}
+  function card(cls,title,sub,body,foot){
+    el.hidden=false;
+    el.innerHTML='<div class="vcard"><div class="vtop '+cls+'"><div class="vseal">mbarara bus park</div>'
+      +'<div class="vtitle">'+title+'</div><div class="vsub">'+sub+'</div></div>'+body
+      +'<div class="vfoot">'+foot+back+'</div></div>';
+    bind();
+  }
+  if(f[0]!=='MB1'||f.length!==BODY_PARTS+1)
+    return card('bad','Couldn&rsquo;t read','This QR isn&rsquo;t a Mbarara park luggage ticket.','','');
+  const o={};FIELDS.forEach((k,i)=>o[k]=f[i+1]===undefined?'':f[i+1]);
+  const body=f.slice(0,BODY_PARTS).join('~'), sig=f[BODY_PARTS];
+  const view={
+    type:dec(o.type),desc:dec(o.desc),sname:dec(o.sname),rname:dec(o.rname),dest:dec(o.dest),att:dec(o.att),
+    plate:o.plate, sphone:tel(o.sphone), rphone:tel(o.rphone),
+    qty:o.qty?o.qty+' pc':'', wt:o.wt?o.wt+' kg':'', fee:o.fee?Number(o.fee).toLocaleString()+' UGX':''
+  };
+  const rows='<div class="vid">'+esc(o.id)+'</div><div class="vrows">'
+    +FIELDS.filter(k=>k!=='id'&&k!=='stamp'&&view[k]).map(k=>'<div class="vrow"><b>'+LBL[k]+'</b><span>'+esc(view[k])+'</span></div>').join('')
+    +'<div class="vrow"><b>Issued</b><span>'+esc(readStamp(o.stamp))+'</span></div></div>';
+  if(!hasCrypto())return card('bad','Unverified','Open this page over https:// to check the signature.',rows,'');
+  const ok=await check(body,sig);
+  card(ok?'':'bad', ok?'&#10004; Ticket verified':'&#10008; Not genuine',
+       ok?'Signature matches &mdash; issued by Mbarara bus park':'Signature does not match. Do not release the item.',
+       rows, ok?'Show this screen when collecting your item.':'');
+}
+// a real scan lands here: index.html#MB1~...~signature
+if(location.hash.indexOf('#MB1~')===0) showTicket(location.href);
 </script>
 </body></html>
