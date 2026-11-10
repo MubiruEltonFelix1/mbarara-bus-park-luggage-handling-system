@@ -21,6 +21,7 @@ export async function sendOTP({
   destination: string
   fee: number
 }) {
+  console.log('EmailJS debug:', { serviceId, templateId, publicKey })
   if (!serviceId || !templateId || !publicKey) {
     console.error('EmailJS env vars missing')
     return
