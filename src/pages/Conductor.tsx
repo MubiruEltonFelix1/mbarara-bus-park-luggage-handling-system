@@ -42,6 +42,7 @@ export function Conductor() {
   const [senderPhone, setSenderPhone] = useState('')
   const [receiverName, setReceiverName] = useState('')
   const [receiverPhone, setReceiverPhone] = useState('')
+  const [receiverEmail, setReceiverEmail] = useState('')
   const [destination, setDestination] = useState('')
   const [vehiclePlate, setVehiclePlate] = useState('')
   const [fee, setFee] = useState(0)
@@ -64,6 +65,7 @@ export function Conductor() {
     if (!receiverName.trim()) e.receiverName = 'Required'
     if (!receiverPhone.trim()) e.receiverPhone = 'Required'
     else if (!isValidUgandanPhone(receiverPhone)) e.receiverPhone = 'Invalid number'
+    if (receiverEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receiverEmail)) e.receiverEmail = 'Invalid email'
     if (!destination.trim()) e.destination = 'Required'
     if (!vehiclePlate.trim()) e.vehiclePlate = 'Required'
     if (fee < 0) e.fee = 'Invalid'
@@ -92,6 +94,7 @@ export function Conductor() {
       senderPhone: senderPhone.trim(),
       receiverName: receiverName.trim(),
       receiverPhone: receiverPhone.trim(),
+      receiverEmail: receiverEmail.trim() || undefined,
       destination: destination.trim(),
       originPark: settings.defaultOrigin,
       vehiclePlate: vehiclePlate.trim().toUpperCase(),
@@ -120,6 +123,7 @@ export function Conductor() {
     setSenderPhone('')
     setReceiverName('')
     setReceiverPhone('')
+    setReceiverEmail('')
     setDestination('')
     setVehiclePlate('')
     setFee(0)
@@ -232,6 +236,9 @@ export function Conductor() {
               </Field>
               <Field label="Phone number" htmlFor="receiverPhone" required error={errors.receiverPhone}>
                 <Input id="receiverPhone" type="tel" value={receiverPhone} onChange={(e) => setReceiverPhone(e.target.value)} placeholder="0701 445 566" className="h-11" invalid={!!errors.receiverPhone} />
+              </Field>
+              <Field label="Email address" htmlFor="receiverEmail" error={errors.receiverEmail}>
+                <Input id="receiverEmail" type="email" value={receiverEmail} onChange={(e) => setReceiverEmail(e.target.value)} placeholder="grace@example.com" className="h-11" invalid={!!errors.receiverEmail} />
               </Field>
             </div>
           </Card>

@@ -73,6 +73,7 @@ export interface Ticket {
   // Receiver
   receiverName: string
   receiverPhone: string
+  receiverEmail?: string
   receiverAltPhone?: string
   // Journey
   destination: string
