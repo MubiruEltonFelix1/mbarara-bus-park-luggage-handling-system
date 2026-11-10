@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-ink-50 text-ink-900 font-sans antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  * {
+    @apply border-ink-200;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-1 ring-offset-white rounded;
+  }
+  /* Number inputs: hide spinners for cleaner look */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-ink-200 bg-white shadow-card;
+  }
+  .input-base {
+    @apply w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 transition;
+  }
+  .input-base:focus {
+    @apply border-brand-500 ring-2 ring-brand-500/20 outline-none;
+  }
+  .input-base:disabled {
+    @apply bg-ink-50 text-ink-400 cursor-not-allowed;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-ink-200 rounded-full;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-300;
+  }
+}
+
+/* ----------------------------------------------------------------
+   PRINT STYLES — thermal 48mm / 80mm + A4 digital
+   The body gets class="printing" during print to hide the app shell.
+----------------------------------------------------------------- */
+@media print {
+  @page {
+    margin: 0;
+  }
+  html,
+  body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  /* Hide everything that is not the print area */
+  body.printing #root > *:not(#print-portal) {
+    display: none !important;
+  }
+  body.printing #print-portal {
+    display: block !important;
+  }
+  #print-portal {
+    display: none;
+  }
+  .thermal-ticket {
+    page-break-after: always;
+    break-after: page;
+    page-break-inside: avoid;
+  }
+  .thermal-ticket:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* When NOT printing, keep the portal hidden */
+#print-portal {
+  display: none;
+}
