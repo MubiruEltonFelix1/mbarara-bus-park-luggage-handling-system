@@ -26,6 +26,7 @@ import { Modal } from '../components/ui/Modal'
 import { ITEM_TYPES, PAYMENT_METHODS, type ItemType, type PaymentMethod, type Ticket } from '../types'
 import { copyToClipboard, formatDateTime, formatUGX, isValidUgandanPhone } from '../lib/utils'
 import { trackingUrl } from '../lib/qr'
+import { sendOTP } from '../lib/email'
 
 export function Conductor() {
   const { settings, createTicket, tickets } = useApp()
@@ -105,6 +106,28 @@ export function Conductor() {
       attendant: settings.attendants[0]?.name ?? 'Conductor',
       printWidth: settings.defaultPrintWidth,
     })
+
+    // Generate OTP and email it to the receiver
+    const otp = Array.from({ length: 6 }, () => Math.floor(Math.random() * 10)).join('')
+    localStorage.setItem(`otp_${ticket.id}`, otp)
+
+    if (receiverEmail.trim()) {
+      try {
+        await sendOTP({
+          toEmail: receiverEmail.trim(),
+          toName: receiverName.trim(),
+          otp,
+          ticketId: ticket.id,
+          senderName: senderName.trim(),
+          destination: destination.trim(),
+          fee,
+        })
+        toast.success('OTP sent to receiver')
+      } catch (err) {
+        console.error('EmailJS send failed:', err)
+        toast.error('Ticket created but OTP email failed to send')
+      }
+    }
 
     setSubmitting(false)
     setSuccess(ticket)
